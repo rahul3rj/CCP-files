@@ -27,14 +27,9 @@ async function readArchive(): Promise<object[]> {
     const { blobs } = await list({ prefix: BLOB_PATHNAME });
     if (blobs.length === 0) return [];
 
-    // For private blobs: add auth header when a static token is available,
-    // otherwise the OIDC identity is used automatically by the SDK.
-    const headers: Record<string, string> = {};
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      headers["Authorization"] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`;
-    }
-
-    const res = await fetch(blobs[0].downloadUrl, { headers });
+    // downloadUrl for private blobs is a pre-signed URL — fetch it directly.
+    // Do NOT add an Authorization header; the signature is embedded in the URL.
+    const res = await fetch(blobs[0].downloadUrl, { cache: "no-store" });
     if (!res.ok) return [];
     const parsed = await res.json();
     return Array.isArray(parsed) ? parsed : [];
