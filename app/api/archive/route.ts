@@ -2,20 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { put, list, del } from "@vercel/blob";
 
 /**
- * Vercel Blob–backed archive store.
+ * Vercel Blob–backed archive store (private store).
  *
- * Works with both:
- *  - BLOB_READ_WRITE_TOKEN  (local dev / manual token)
- *  - BLOB_STORE_ID          (Vercel OIDC connection — no token needed)
+ * Auth strategy for reading the blob:
+ *   - When BLOB_READ_WRITE_TOKEN is present (local dev, or Vercel if explicitly
+ *     added as an env var): fetch blob.url with Authorization: Bearer <token>
+ *   - When only BLOB_STORE_ID + VERCEL_OIDC_TOKEN are present (Vercel OIDC):
+ *     use the @vercel/blob SDK's `list()` token option, then pass the OIDC token
+ *     as the Authorization header on the raw fetch
+ *
+ * Writes always go through the SDK (put/del) which handles auth automatically.
  *
  * GET    /api/archive          — returns all archived reels
  * POST   /api/archive          — adds a new reel (body: Reel JSON)
- * DELETE /api/archive?id=xxx   — removes the reel with the given id
+ * DELETE /api/archive?id=xxx   — removes a reel by id
  */
 
 const BLOB_PATHNAME = "archive/data.json";
 
-/** True when running on Vercel (OIDC) or locally with a token */
 function usesBlob() {
   return !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 }
@@ -27,10 +31,22 @@ async function readArchive(): Promise<object[]> {
     const { blobs } = await list({ prefix: BLOB_PATHNAME });
     if (blobs.length === 0) return [];
 
-    // downloadUrl for private blobs is a pre-signed URL — fetch it directly.
-    // Do NOT add an Authorization header; the signature is embedded in the URL.
-    const res = await fetch(blobs[0].downloadUrl, { cache: "no-store" });
+    const { url } = blobs[0];
+
+    // Build the auth header — prefer the static R/W token, fall back to
+    // the OIDC token that Vercel injects at runtime on deployed functions.
+    const bearerToken =
+      process.env.BLOB_READ_WRITE_TOKEN ??
+      process.env.VERCEL_OIDC_TOKEN ??
+      "";
+
+    const headers: Record<string, string> = bearerToken
+      ? { Authorization: `Bearer ${bearerToken}` }
+      : {};
+
+    const res = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) return [];
+
     const parsed = await res.json();
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -39,6 +55,7 @@ async function readArchive(): Promise<object[]> {
 }
 
 async function writeArchive(data: object[]): Promise<void> {
+  // SDK handles BLOB_READ_WRITE_TOKEN and VERCEL_OIDC_TOKEN automatically
   await put(BLOB_PATHNAME, JSON.stringify(data, null, 2), {
     access: "private",
     contentType: "application/json",
@@ -46,13 +63,16 @@ async function writeArchive(data: object[]): Promise<void> {
   });
 }
 
-/* ── local file fallback (only when no Blob env vars are set) ─── */
+/* ── local file fallback (no Blob env vars) ──────────────────── */
 
 async function readLocal(): Promise<object[]> {
   const { readFileSync } = await import("fs");
   const { join } = await import("path");
   try {
-    const raw = readFileSync(join(process.cwd(), "app", "data", "archive.json"), "utf-8");
+    const raw = readFileSync(
+      join(process.cwd(), "app", "data", "archive.json"),
+      "utf-8"
+    );
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -70,13 +90,13 @@ async function writeLocal(data: object[]): Promise<void> {
   );
 }
 
-/* ── GET — list all ───────────────────────────────────────────── */
+/* ── GET ─────────────────────────────────────────────────────── */
 export async function GET() {
   const archive = usesBlob() ? await readArchive() : await readLocal();
   return NextResponse.json(archive);
 }
 
-/* ── POST — add new entry ─────────────────────────────────────── */
+/* ── POST ────────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -86,14 +106,20 @@ export async function POST(req: NextRequest) {
   }
 
   if (!body.id || typeof body.id !== "string") {
-    return NextResponse.json({ error: "Missing or invalid 'id' field" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing or invalid 'id' field" },
+      { status: 400 }
+    );
   }
 
   try {
     const archive = usesBlob() ? await readArchive() : await readLocal();
 
     if (archive.some((r) => (r as { id: string }).id === body.id)) {
-      return NextResponse.json({ error: "An entry with this id already exists" }, { status: 409 });
+      return NextResponse.json(
+        { error: "An entry with this id already exists" },
+        { status: 409 }
+      );
     }
 
     archive.unshift(body); // newest first
@@ -111,11 +137,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/* ── DELETE — remove by id ────────────────────────────────────── */
+/* ── DELETE ──────────────────────────────────────────────────── */
 export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
-    return NextResponse.json({ error: "Missing 'id' query param" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing 'id' query param" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -128,7 +157,7 @@ export async function DELETE(req: NextRequest) {
 
     if (usesBlob()) {
       await writeArchive(updated);
-      // Clean up any individually keyed blobs (legacy)
+      // Clean up any individually keyed legacy blobs
       try {
         const { blobs } = await list({ prefix: `archive/${id}` });
         await Promise.all(blobs.map((b) => del(b.url)));
