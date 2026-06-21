@@ -120,7 +120,7 @@ export function Navbar({ active, onNavigate, onSearch, searchQuery: externalQuer
             className="hidden md:flex items-center gap-2"
             style={{
               padding: "7px 12px", borderRadius: "7px",
-              background: "rgba(255,255,255,0.05)",
+              background: "transparent",
               border: `1px solid ${searching ? "var(--border-hover)" : "var(--border)"}`,
               width: "200px", flexShrink: 0, transition: "border-color 0.15s",
             }}
@@ -161,22 +161,22 @@ export function Navbar({ active, onNavigate, onSearch, searchQuery: externalQuer
             className="hidden md:flex items-center gap-2"
             style={{
               padding: "7px 12px", borderRadius: "7px",
-              background: "rgba(255,255,255,0.05)",
+              background: "transparent",
               border: "1px solid var(--border)",
-              color: "rgba(255,255,255,0.7)",
+              color: "rgba(255,255,255,0.45)",
               fontSize: "12px", fontWeight: 500,
               textDecoration: "none", flexShrink: 0,
               transition: "background 0.15s, color 0.15s, border-color 0.15s",
               letterSpacing: "-0.01em",
             }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.1)";
-              (e.currentTarget as HTMLAnchorElement).style.color = "#fff";
-              (e.currentTarget as HTMLAnchorElement).style.borderColor = "rgba(255,255,255,0.25)";
+              (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.08)";
+              (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.75)";
+              (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border-hover)";
             }}
             onMouseLeave={e => {
-              (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.05)";
-              (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)";
+              (e.currentTarget as HTMLAnchorElement).style.background = "transparent";
+              (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.45)";
               (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
             }}
           >
