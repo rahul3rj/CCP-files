@@ -68,11 +68,13 @@ async function saveToArchive(reel: Reel): Promise<{ ok: boolean; error?: string 
   } catch { return { ok: false, error: "Network error" }; }
 }
 
-async function deleteFromArchive(id: string): Promise<boolean> {
+async function deleteFromArchive(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch(`/api/archive?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    return res.ok;
-  } catch { return false; }
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error ?? `Server error ${res.status}` };
+    return { ok: true };
+  } catch { return { ok: false, error: "Network error" }; }
 }
 
 type Props = { onNavigate: (page: string) => void };
@@ -92,6 +94,8 @@ export function Upload({ onNavigate }: Props) {
   const [success,        setSuccess]        = useState("");
   const [saved,          setSaved]          = useState<Reel[]>([]);
   const [saving,         setSaving]         = useState(false);
+  const [deleting,       setDeleting]       = useState<string | null>(null); // id being deleted
+  const [deleteError,    setDeleteError]    = useState("");
   const [activeStep,     setActiveStep]     = useState<1 | 2 | 3>(1);
   const [showVideoUrl,   setShowVideoUrl]   = useState(false);
   const [manualVideoUrl, setManualVideoUrl] = useState("");
@@ -210,8 +214,15 @@ export function Upload({ onNavigate }: Props) {
   }
 
   async function deleteReel(id: string) {
-    const ok = await deleteFromArchive(id);
-    if (ok) setSaved(prev => prev.filter(r => r.id !== id));
+    setDeleting(id);
+    setDeleteError("");
+    const result = await deleteFromArchive(id);
+    setDeleting(null);
+    if (result.ok) {
+      setSaved(prev => prev.filter(r => r.id !== id));
+    } else {
+      setDeleteError(result.error ?? "Could not delete");
+    }
   }
 
   const canSubmit = !!resolved && title.trim().length > 0 && !resolving && !saving;
@@ -707,13 +718,23 @@ export function Upload({ onNavigate }: Props) {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "420px", overflowY: "auto" }}>
+                {deleteError && (
+                  <p style={{ fontSize: "11px", color: "#f87171", padding: "6px 10px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: "6px", margin: "0 0 4px" }}>
+                    ✕ {deleteError}
+                  </p>
+                )}
                 {saved.map(r => {
                   const rWithMeta = r as Reel & { location?: string; tags?: string[] };
+                  const isDeleting = deleting === r.id;
                   return (
                     <div
                       key={r.id}
                       className="flex items-start gap-3"
-                      style={{ padding: "10px 12px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "8px", animation: "fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both" }}
+                      style={{
+                        padding: "10px 12px", background: "var(--bg-card)", border: "1px solid var(--border)",
+                        borderRadius: "8px", animation: "fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both",
+                        opacity: isDeleting ? 0.5 : 1, transition: "opacity 0.2s",
+                      }}
                     >
                       {r.thumbnail ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -747,12 +768,22 @@ export function Upload({ onNavigate }: Props) {
                       </div>
                       <button
                         onClick={() => deleteReel(r.id)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", flexShrink: 0, padding: "4px", transition: "color 0.15s", marginTop: "1px" }}
+                        disabled={deleting !== null}
+                        style={{
+                          background: "none", border: "none",
+                          cursor: deleting !== null ? "default" : "pointer",
+                          color: "var(--text-muted)", flexShrink: 0, padding: "4px",
+                          transition: "color 0.15s", marginTop: "1px",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}
                         aria-label="Remove"
-                        onMouseEnter={e => (e.currentTarget.style.color = "#f87171")}
+                        onMouseEnter={e => { if (!deleting) e.currentTarget.style.color = "#f87171"; }}
                         onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
                       >
-                        <Trash size={13} />
+                        {isDeleting
+                          ? <div style={{ width: "13px", height: "13px", borderRadius: "50%", border: "2px solid rgba(255,255,255,0.15)", borderTopColor: "#f87171", animation: "spin 0.7s linear infinite" }} />
+                          : <Trash size={13} />
+                        }
                       </button>
                     </div>
                   );

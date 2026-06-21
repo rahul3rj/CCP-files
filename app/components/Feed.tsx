@@ -84,14 +84,25 @@ export function Feed({ onNavigate, searchQuery: externalQuery }: Props) {
       try {
         const res = await fetch("/api/archive");
         const archived: Reel[] = res.ok ? await res.json() : [];
-        // Fisher-Yates shuffle — randomise order on every load so all videos get equal visibility
-        for (let i = archived.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [archived[i], archived[j]] = [archived[j], archived[i]];
-        }
-        setAllReels(archived);
+        setAllReels(prev => {
+          // Only shuffle on first load (when prev is empty).
+          // On focus re-fetches, merge in any new reels at the end to avoid
+          // reshuffling and disrupting the currently-playing video.
+          if (prev.length === 0) {
+            // Fisher-Yates shuffle — randomise order on first load
+            for (let i = archived.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [archived[i], archived[j]] = [archived[j], archived[i]];
+            }
+            return archived;
+          }
+          // On subsequent fetches, append only truly new reels (by id) to the end
+          const existingIds = new Set(prev.map(r => r.id));
+          const newReels = archived.filter(r => !existingIds.has(r.id));
+          return newReels.length > 0 ? [...prev, ...newReels] : prev;
+        });
       } catch {
-        setAllReels([]);
+        setAllReels(prev => prev.length > 0 ? prev : []);
       }
     }
     load();

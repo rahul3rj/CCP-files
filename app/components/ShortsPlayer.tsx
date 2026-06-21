@@ -3,12 +3,30 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import {
   ArrowLeft, ArrowDown, ArrowUp,
-  Heart, ShareNetwork,
+  ShareNetwork,
   Pause, Play, SpeakerHigh, SpeakerSlash,
-  X as XIcon, Repeat, DownloadSimple, CheckCircle, MapPin,
+  X as XIcon, Repeat, DownloadSimple, CheckCircle, MapPin, Link,
 } from "@phosphor-icons/react";
 import type { Reel } from "../data/reels";
 import { resolveVideoSrc } from "../data/reels";
+import { GeminiIcon } from "./GeminiIcon";
+
+/* Gemini spark icon — exact path from the official Gemini SVG, white fill */
+function GeminiStar({ size = 20 }: { size?: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 50 50" aria-label="Ask AI">
+      <path
+        fill="white"
+        d="M49.04,24.001l-1.082-0.043h-0.001C36.134,23.492,26.508,13.866,26.042,2.043L25.999,0.96
+           C25.978,0.424,25.537,0,25,0s-0.978,0.424-0.999,0.96l-0.043,1.083C23.492,13.866,13.866,23.492,2.042,23.958
+           L0.96,24.001C0.424,24.022,0,24.463,0,25c0,0.537,0.424,0.978,0.961,0.999l1.082,0.042
+           c11.823,0.467,21.449,10.093,21.915,21.916l0.043,1.083C24.022,49.576,24.463,50,25,50
+           s0.978-0.424,0.999-0.96l0.043-1.083c0.466-11.823,10.092-21.449,21.915-21.916l1.082-0.042
+           C49.576,25.978,50,25.537,50,25C50,24.463,49.576,24.022,49.04,24.001z"
+      />
+    </svg>
+  );
+}
 
 type Props = { reels: Reel[]; startIndex: number; onClose: () => void };
 type Dims  = { w: number; h: number };
@@ -27,6 +45,8 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [liked,        setLiked]        = useState(false);
   const [loopMode,     setLoopMode]     = useState(true);
+  const [shareCopied,  setShareCopied]  = useState(false);
+  const [aiCopied,     setAiCopied]     = useState(false);
   const [naturalDims,  setNaturalDims]  = useState<Dims | null>(null);
   const [displayDims,  setDisplayDims]  = useState<Dims | null>(null);
   // Detect mobile via window width — avoids dual-render audio bug
@@ -62,6 +82,43 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
   const goToPrev = useCallback(() => {
     if (currentIndex > 0) setCurrentIndex(i => i - 1);
   }, [currentIndex]);
+
+  // ── Action handlers ──
+  function handleAskAI() {
+    const prompt = `Tell me more about: ${reel.title}`;
+    navigator.clipboard.writeText(prompt).catch(() => {});
+    setAiCopied(true);
+    setTimeout(() => {
+      setAiCopied(false);
+      window.open("https://gemini.google.com/", "_blank", "noopener,noreferrer");
+    }, 2000);
+  }
+
+  function handleShare() {
+    const link = reel.tweetUrl ?? reel.videoUrl ?? "";
+    if (!link) return;
+    navigator.clipboard.writeText(link).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }).catch(() => {
+      // Fallback for browsers that block clipboard without https
+      const ta = document.createElement("textarea");
+      ta.value = link;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }
+
+  function handleSave() {
+    const url = reel.videoUrl ?? "";
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   // Keyboard nav (desktop)
   useEffect(() => {
@@ -136,7 +193,7 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
               color: "#fff", cursor: "pointer", padding: "8px 14px",
               fontSize: "13px", fontWeight: 600,
             }}>
-              <ArrowLeft size={14} weight="bold" /> Map
+              <ArrowLeft size={14} weight="bold" /> Back
             </button>
             <span style={{
               fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.7)",
@@ -154,21 +211,27 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
             bottom: "140px",
             zIndex: 30,
             width: "60px",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: "20px",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "20px",
           }}>
-            <MobileActionBtn
-              icon={<Heart size={24} weight={liked ? "fill" : "regular"} />}
-              label="Like" active={liked} color={liked ? "var(--accent)" : undefined}
-              onClick={() => setLiked(v => !v)}
-            />
-            <MobileActionBtn icon={<ShareNetwork size={24} />} label="Share" onClick={() => {}} />
-            <MobileActionBtn icon={<DownloadSimple size={24} />} label="Save" onClick={() => {}} />
             <MobileActionBtn
               icon={<Repeat size={24} weight={loopMode ? "fill" : "regular"} />}
               label={loopMode ? "Loop" : "Auto"} active={loopMode}
               color={loopMode ? "var(--accent)" : undefined}
               onClick={() => setLoopMode(v => !v)}
             />
+            <MobileActionBtn
+              icon={<GeminiStar size={24} />}
+              label="Ask AI"
+              onClick={handleAskAI}
+            />
+            <MobileActionBtn
+              icon={<ShareNetwork size={24} />}
+              label={shareCopied ? "Copied!" : "Share"}
+              active={shareCopied}
+              color={shareCopied ? "#22c55e" : undefined}
+              onClick={handleShare}
+            />
+            <MobileActionBtn icon={<DownloadSimple size={24} />} label="Save" onClick={handleSave} />
           </div>
 
           {/* Bottom info — left of action strip */}
@@ -257,7 +320,7 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
               style={{ background: "none", border: "none", color: "rgba(255,255,255,0.55)", cursor: "pointer", fontSize: "13px", fontWeight: 500, padding: 0, display: "flex", alignItems: "center", gap: "6px" }}
               onMouseEnter={e => (e.currentTarget.style.color = "#fff")}
               onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.55)")}>
-              <ArrowLeft size={15} weight="bold" /> Map
+              <ArrowLeft size={15} weight="bold" /> Back
             </button>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {reel.category && (
@@ -316,18 +379,103 @@ export function ShortsPlayer({ reels, startIndex, onClose }: Props) {
             ))}
           </div>
 
-          {/* Center: video + action strip */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100dvh" }}>
+          {/* Center: video + action strip
+              The outer wrapper fills the space between the 340px left panel and
+              the 86px right arrows column. The inner flex row is centered inside
+              that remaining space so the video sits truly in the middle. */}
+          <div style={{
+            position: "absolute",
+            left: "340px",
+            right: "86px",
+            top: 0,
+            bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
             <div style={{ flexShrink: 0 }}>{videoPlayer}</div>
-            <div style={{ width: "76px", height: `${panelH}px`, marginLeft: "16px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: "20px", paddingBottom: "4px" }}>
-              <ActionBtn icon={<Heart size={20} weight={liked ? "fill" : "regular"} />} label="Like" active={liked} color={liked ? "var(--accent)" : undefined} onClick={() => setLiked(v => !v)} />
+            {/* Action strip — immediately right of the video */}
+            <div style={{
+              width: "76px",
+              height: `${panelH}px`,
+              marginLeft: "16px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "flex-end",
+              gap: "20px",
+              paddingBottom: "4px",
+              flexShrink: 0,
+              position: "relative",
+            }}>
               <ActionBtn icon={<Repeat size={20} weight={loopMode ? "fill" : "regular"} />} label={loopMode ? "Loop" : "Auto"} active={loopMode} color={loopMode ? "var(--accent)" : undefined} onClick={() => setLoopMode(v => !v)} />
-              <ActionBtn icon={<ShareNetwork size={20} />}   label="Share" onClick={() => {}} />
-              <ActionBtn icon={<DownloadSimple size={20} />} label="Save"  onClick={() => {}} />
+              <ActionBtn icon={<GeminiStar size={20} />} label="Ask AI" onClick={handleAskAI} />
+              <ActionBtn icon={<ShareNetwork size={20} />} label="Share" active={shareCopied} color={shareCopied ? "#22c55e" : undefined} onClick={handleShare} />
+              <ActionBtn icon={<DownloadSimple size={20} />} label="Save" onClick={handleSave} />
             </div>
           </div>
         </>
       )}
+
+      {/* Link copied toast — beside the X button, top-right */}
+      {shareCopied && (
+        <div style={{
+          position: "fixed",
+          top: "20px",
+          right: "68px",          /* sits left of the 36px X button + 12px gap */
+          background: "rgba(20,20,20,0.92)",
+          backdropFilter: "blur(12px)",
+          color: "#fff",
+          fontSize: "12px",
+          fontWeight: 600,
+          padding: "8px 14px",
+          borderRadius: "8px",
+          border: "1px solid rgba(34,197,94,0.4)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          gap: "7px",
+          zIndex: 9999,
+          whiteSpace: "nowrap",
+          animation: "toastSlideLeft 0.2s cubic-bezier(0.16,1,0.3,1) both",
+        }}>
+          <CheckCircle size={14} weight="fill" color="#22c55e" />
+          Link copied
+        </div>
+      )}
+
+      {/* AI prompt copied toast — beside X button, top-right */}
+      {aiCopied && (
+        <div style={{
+          position: "fixed",
+          top: "20px",
+          right: "68px",
+          background: "rgba(20,20,20,0.92)",
+          backdropFilter: "blur(12px)",
+          color: "#fff",
+          fontSize: "12px",
+          fontWeight: 600,
+          padding: "8px 14px",
+          borderRadius: "8px",
+          border: "1px solid rgba(138,100,255,0.4)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          gap: "7px",
+          zIndex: 9999,
+          whiteSpace: "nowrap",
+          animation: "toastSlideLeft 0.2s cubic-bezier(0.16,1,0.3,1) both",
+        }}>
+          <CheckCircle size={14} weight="fill" color="#8a64ff" />
+          Prompt copied! Paste it into Gemini.
+        </div>
+      )}
+
+      <style>{`
+        @keyframes toastSlideLeft {
+          from { opacity: 0; transform: translateX(10px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -625,7 +773,7 @@ function MobileActionBtn({ icon, label, active, color, onClick }: {
 }) {
   return (
     <button onClick={e => { e.stopPropagation(); onClick(); }}
-      style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", width: "56px" }}>
+      style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", width: "100%", position: "relative" }}>
       <div style={{
         width: "44px", height: "44px", borderRadius: "50%",
         background: "rgba(0,0,0,0.55)", backdropFilter: "blur(12px)",

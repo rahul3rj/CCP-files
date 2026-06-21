@@ -21,7 +21,7 @@ type Props = {
 const NAV_ITEMS = [
   { id: "Home",      label: "Archive",   icon: Archive },
   { id: "Map",       label: "Map",       icon: Globe   },
-  { id: "Knowledge", label: "Knowledge", icon: Brain   },
+  { id: "Knowledge", label: "Truth", icon: Brain   },
 ];
 
 export function Navbar({ active, onNavigate, onSearch, searchQuery: externalQuery }: Props) {
