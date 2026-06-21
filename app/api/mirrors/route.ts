@@ -14,19 +14,19 @@ export const MIRRORS = [
   {
     id: "m1",
     label: "Mirror 1",
-    url: "https://ccp-files-mirror1.vercel.app",
+    url: "https://ccp-files-1.vercel.app/",
     region: "US East",
   },
   {
     id: "m2",
     label: "Mirror 2",
-    url: "https://ccp-files-mirror2.vercel.app",
+    url: "https://ccp-files-2.vercel.app/",
     region: "US West",
   },
   {
     id: "m3",
     label: "Mirror 3",
-    url: "https://ccp-files-mirror3.vercel.app",
+    url: "https://ccp-files-3.vercel.app/",
     region: "Europe",
   },
 ];
