@@ -153,6 +153,40 @@ export function Navbar({ active, onNavigate, onSearch, searchQuery: externalQuer
           {/* Mirror Sites button — desktop */}
           <MirrorButton className="hidden md:flex" />
 
+          {/* X.com / Twitter profile link — desktop */}
+          <a
+            href="https://x.com/rahul_3rj"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex items-center gap-2"
+            style={{
+              padding: "7px 12px", borderRadius: "7px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid var(--border)",
+              color: "rgba(255,255,255,0.7)",
+              fontSize: "12px", fontWeight: 500,
+              textDecoration: "none", flexShrink: 0,
+              transition: "background 0.15s, color 0.15s, border-color 0.15s",
+              letterSpacing: "-0.01em",
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.1)";
+              (e.currentTarget as HTMLAnchorElement).style.color = "#fff";
+              (e.currentTarget as HTMLAnchorElement).style.borderColor = "rgba(255,255,255,0.25)";
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.05)";
+              (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)";
+              (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+            }}
+          >
+            {/* X.com logo */}
+            <svg width="13" height="13" viewBox="0 0 1200 1227" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+              <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.137 519.284H714.163ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.412 515.685L658.88 583.579L1055.08 1150.3H892.476L569.165 687.854V687.828Z"/>
+            </svg>
+            @rahul_3rj
+          </a>
+
           {/* Submit — desktop */}
           <button
             onClick={() => onNavigate("Upload")}
