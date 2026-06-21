@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   MagnifyingGlass,
   Archive,
@@ -251,27 +251,51 @@ export function Navbar({ active, onNavigate, onSearch, searchQuery: externalQuer
 }
 
 /* ─────────────────────────────────────────────
-   MIRROR SITES DATA
+   MIRROR SITES — fetched live from /api/mirrors
 ───────────────────────────────────────────── */
-const MIRROR_SITES = [
-  { label: "Mirror 1", url: "https://mirror1.ccpfiles.com", note: "Primary backup" },
-  { label: "Mirror 2", url: "https://mirror2.ccpfiles.com", note: "Secondary backup" },
-  { label: "Mirror 3", url: "https://mirror3.ccpfiles.com", note: "EU region"       },
-  { label: "Mirror 4", url: "https://mirror4.ccpfiles.com", note: "Asia region"     },
-  { label: "Mirror 5", url: "https://mirror5.ccpfiles.com", note: "Tor-friendly"    },
-];
+type MirrorStatus = {
+  id: string;
+  label: string;
+  url: string;
+  region: string;
+  online: boolean;
+  latencyMs: number | null;
+};
+
+function useMirrors() {
+  const [mirrors, setMirrors] = useState<MirrorStatus[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    fetch("/api/mirrors", { cache: "no-store" })
+      .then(r => r.json())
+      .then((data: MirrorStatus[]) => setMirrors(data))
+      .catch(() => setMirrors([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { mirrors, loading, refresh };
+}
 
 /* ─────────────────────────────────────────────
    MIRROR BUTTON — desktop navbar
 ───────────────────────────────────────────── */
 function MirrorButton({ className = "" }: { className?: string }) {
   const [open, setOpen] = useState(false);
+  const { mirrors, loading, refresh } = useMirrors();
+
+  function handleOpen() {
+    const next = !open;
+    setOpen(next);
+    if (next) refresh(); // fetch status on open
+  }
 
   return (
     <div className={`relative flex-shrink-0 ${className}`} style={{ zIndex: 60 }}>
       <button
         id="mirror-sites-btn"
-        onClick={() => setOpen(v => !v)}
+        onClick={handleOpen}
         style={{
           display: "flex",
           alignItems: "center",
@@ -288,20 +312,11 @@ function MirrorButton({ className = "" }: { className?: string }) {
           transition: "background 0.15s, border-color 0.15s, color 0.15s",
           flexShrink: 0,
         }}
-        onMouseEnter={e => {
-          if (!open) {
-            e.currentTarget.style.color = "rgba(255,255,255,0.75)";
-          }
-        }}
-        onMouseLeave={e => {
-          if (!open) {
-            e.currentTarget.style.color = "rgba(255,255,255,0.45)";
-          }
-        }}
+        onMouseEnter={e => { if (!open) e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
+        onMouseLeave={e => { if (!open) e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
         aria-expanded={open}
         aria-haspopup="true"
       >
-        {/* Shield SVG */}
         <svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
@@ -310,10 +325,8 @@ function MirrorButton({ className = "" }: { className?: string }) {
 
       {open && (
         <>
-          {/* Backdrop */}
           <div className="fixed inset-0" style={{ zIndex: 58 }} onClick={() => setOpen(false)} />
-          {/* Panel */}
-          <MirrorPanel onClose={() => setOpen(false)} align="right" />
+          <MirrorPanel mirrors={mirrors} loading={loading} onRefresh={refresh} onClose={() => setOpen(false)} align="right" />
         </>
       )}
     </div>
@@ -325,11 +338,18 @@ function MirrorButton({ className = "" }: { className?: string }) {
 ───────────────────────────────────────────── */
 function MirrorBottomNavItem() {
   const [open, setOpen] = useState(false);
+  const { mirrors, loading, refresh } = useMirrors();
+
+  function handleOpen() {
+    const next = !open;
+    setOpen(next);
+    if (next) refresh();
+  }
 
   return (
     <>
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={handleOpen}
         style={{
           flex: 1,
           display: "flex",
@@ -357,7 +377,7 @@ function MirrorBottomNavItem() {
       {open && (
         <>
           <div className="fixed inset-0" style={{ zIndex: 58 }} onClick={() => setOpen(false)} />
-          <MirrorPanel onClose={() => setOpen(false)} align="left" mobile />
+          <MirrorPanel mirrors={mirrors} loading={loading} onRefresh={refresh} onClose={() => setOpen(false)} align="left" mobile />
         </>
       )}
     </>
@@ -365,9 +385,20 @@ function MirrorBottomNavItem() {
 }
 
 /* ─────────────────────────────────────────────
-   SHARED PANEL
+   SHARED PANEL — with live status indicators
 ───────────────────────────────────────────── */
-function MirrorPanel({ onClose, align, mobile }: { onClose: () => void; align: "left" | "right"; mobile?: boolean }) {
+function MirrorPanel({
+  mirrors, loading, onRefresh, onClose, align, mobile,
+}: {
+  mirrors: MirrorStatus[];
+  loading: boolean;
+  onRefresh: () => void;
+  onClose: () => void;
+  align: "left" | "right";
+  mobile?: boolean;
+}) {
+  const onlineCount = mirrors.filter(m => m.online).length;
+
   return (
     <div
       role="dialog"
@@ -395,80 +426,140 @@ function MirrorPanel({ onClose, align, mobile }: { onClose: () => void; align: "
         borderBottom: "1px solid var(--border)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{
-            fontSize: "11px", fontWeight: 700, letterSpacing: "0.1em",
-            textTransform: "uppercase", color: "var(--text-secondary)",
-          }}>
+          <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-secondary)" }}>
             Mirror Sites
           </span>
+          {/* Online count badge */}
+          {mirrors.length > 0 && (
+            <span style={{
+              fontSize: "9px", padding: "2px 6px", borderRadius: "4px", fontWeight: 700,
+              background: onlineCount > 0 ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)",
+              border: `1px solid ${onlineCount > 0 ? "rgba(34,197,94,0.25)" : "rgba(248,113,113,0.25)"}`,
+              color: onlineCount > 0 ? "#22c55e" : "#f87171",
+            }}>
+              {onlineCount}/{mirrors.length} online
+            </span>
+          )}
         </div>
-        <button
-          onClick={onClose}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.35)", padding: "2px", lineHeight: 1, transition: "color 0.15s" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.85)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.35)")}
-          aria-label="Close mirror sites panel"
-        >
-          <X size={14} weight="bold" />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {/* Refresh button */}
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="Refresh mirror status"
+            style={{
+              background: "none", border: "none", cursor: loading ? "default" : "pointer",
+              color: "rgba(255,255,255,0.35)", padding: "2px", lineHeight: 1,
+              transition: "color 0.15s",
+              animation: loading ? "spin 0.8s linear infinite" : "none",
+              display: "flex",
+            }}
+            onMouseEnter={e => { if (!loading) e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.35)")}
+          >
+            {/* Refresh icon */}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.35)", padding: "2px", lineHeight: 1, transition: "color 0.15s" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,0.85)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.35)")}
+            aria-label="Close"
+          >
+            <X size={14} weight="bold" />
+          </button>
+        </div>
       </div>
 
       {/* Warning note */}
       <div style={{ padding: "10px 16px 8px", borderBottom: "1px solid var(--border)" }}>
         <p style={{ fontSize: "11.5px", color: "var(--text-secondary)", lineHeight: 1.6, margin: 0 }}>
-          If this site is taken down by CCP-affiliated actors or censorship pressure, use one of the backup mirrors below to access the archive.
+          If this site is blocked or taken down, use a mirror below. All mirrors share the same archive data.
         </p>
       </div>
 
       {/* Site list */}
-      <div style={{ padding: "8px 0" }}>
-        {MIRROR_SITES.map((site, i) => (
-          <a
-            key={i}
-            href={site.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "10px 16px",
-              textDecoration: "none",
-              transition: "background 0.12s",
-              gap: "12px",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: "13px", fontWeight: 600, color: "#fff", marginBottom: "2px" }}>
-                {site.label}
+      <div style={{ padding: "6px 0" }}>
+        {loading && mirrors.length === 0 ? (
+          /* Loading skeleton */
+          [1, 2, 3].map(i => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "11px 16px" }}>
+              <div className="skeleton" style={{ width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div className="skeleton" style={{ width: "80px", height: "12px", borderRadius: "4px", marginBottom: "5px" }} />
+                <div className="skeleton" style={{ width: "140px", height: "10px", borderRadius: "4px" }} />
               </div>
-              <div style={{ fontSize: "10.5px", color: "rgba(255,255,255,0.32)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {site.url}
-              </div>
+              <div className="skeleton" style={{ width: "48px", height: "18px", borderRadius: "4px" }} />
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+          ))
+        ) : mirrors.length === 0 ? (
+          <p style={{ fontSize: "12px", color: "var(--text-muted)", padding: "16px", textAlign: "center" }}>
+            No mirrors configured yet
+          </p>
+        ) : (
+          mirrors.map((mirror) => (
+            <a
+              key={mirror.id}
+              href={mirror.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "flex", alignItems: "center",
+                padding: "10px 16px", textDecoration: "none",
+                transition: "background 0.12s", gap: "12px",
+                opacity: mirror.online ? 1 : 0.55,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              {/* Status dot */}
               <span style={{
-                fontSize: "9.5px", padding: "2px 7px", borderRadius: "4px",
-                background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "rgba(255,255,255,0.4)", whiteSpace: "nowrap",
-              }}>
-                {site.note}
-              </span>
-              <ArrowRight size={11} style={{ color: "rgba(255,255,255,0.3)" }} />
-            </div>
-          </a>
-        ))}
+                width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+                background: mirror.online ? "#22c55e" : "#f87171",
+                boxShadow: mirror.online ? "0 0 6px rgba(34,197,94,0.6)" : "none",
+              }} />
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 600, color: "#fff" }}>
+                    {mirror.label}
+                  </span>
+                  <span style={{ fontSize: "9.5px", color: "var(--text-muted)", padding: "1px 5px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    {mirror.region}
+                  </span>
+                </div>
+                <div style={{ fontSize: "10.5px", color: "rgba(255,255,255,0.28)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {mirror.url}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                {/* Latency / status badge */}
+                <span style={{
+                  fontSize: "9.5px", padding: "2px 7px", borderRadius: "4px", whiteSpace: "nowrap",
+                  background: mirror.online ? "rgba(34,197,94,0.08)" : "rgba(248,113,113,0.08)",
+                  border: `1px solid ${mirror.online ? "rgba(34,197,94,0.2)" : "rgba(248,113,113,0.2)"}`,
+                  color: mirror.online ? "#22c55e" : "#f87171",
+                  fontWeight: 600,
+                }}>
+                  {mirror.online
+                    ? mirror.latencyMs !== null ? `${mirror.latencyMs}ms` : "Online"
+                    : "Offline"}
+                </span>
+                {mirror.online && <ArrowRight size={11} style={{ color: "rgba(255,255,255,0.25)" }} />}
+              </div>
+            </a>
+          ))
+        )}
       </div>
 
       {/* Footer */}
-      <div style={{
-        padding: "8px 16px 12px",
-        borderTop: "1px solid var(--border)",
-        fontSize: "10px", color: "rgba(255,255,255,0.2)", textAlign: "center",
-      }}>
-        Bookmark all mirrors · Share with others
+      <div style={{ padding: "8px 16px 12px", borderTop: "1px solid var(--border)", fontSize: "10px", color: "rgba(255,255,255,0.2)", textAlign: "center" }}>
+        Bookmark all mirrors · Share with others if main site is down
       </div>
     </div>
   );
