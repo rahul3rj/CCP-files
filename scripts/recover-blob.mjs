@@ -5,7 +5,12 @@
  * Usage: node scripts/recover-blob.mjs <BLOB_READ_WRITE_TOKEN>
  */
 
-const token = process.argv[2] || "vercel_blob_rw_kEsJD9NWmyTs02G7_oBI2NYgj8c8Cxtjr3gcA8PU2ZdnE5R";
+const token = process.argv[2];
+if (!token) {
+  console.error("❌  Pass your BLOB_READ_WRITE_TOKEN as the first argument:");
+  console.error("    node scripts/recover-blob.mjs <BLOB_READ_WRITE_TOKEN>");
+  process.exit(1);
+}
 
 console.log("🔍 Listing all blobs in the store...\n");
 
