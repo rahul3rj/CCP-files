@@ -1,69 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put, list, del } from "@vercel/blob";
 
 /**
- * Vercel Blob–backed archive store (private store).
+ * Cloudflare Workers KV–backed archive store.
  *
- * Auth strategy for reading the blob:
- *   - When BLOB_READ_WRITE_TOKEN is present (local dev, or Vercel if explicitly
- *     added as an env var): fetch blob.url with Authorization: Bearer <token>
- *   - When only BLOB_STORE_ID + VERCEL_OIDC_TOKEN are present (Vercel OIDC):
- *     use the @vercel/blob SDK's `list()` token option, then pass the OIDC token
- *     as the Authorization header on the raw fetch
+ * All data lives under a single KV key ("archive") as a JSON array.
+ * The KV namespace is accessed via Cloudflare's REST API — no Cloudflare
+ * Worker is needed. The Next.js app continues to run on Vercel.
  *
- * Writes always go through the SDK (put/del) which handles auth automatically.
+ * Required env vars (set in Vercel dashboard):
+ *   CF_ACCOUNT_ID        — Cloudflare account ID
+ *   CF_KV_NAMESPACE_ID   — KV namespace ID
+ *   CF_KV_API_TOKEN      — Cloudflare API token with Workers KV Storage: Edit
  *
  * GET    /api/archive          — returns all archived reels
  * POST   /api/archive          — adds a new reel (body: Reel JSON)
  * DELETE /api/archive?id=xxx   — removes a reel by id
  */
 
-const BLOB_PATHNAME = "archive/data.json";
+const KV_KEY = "archive";
 
-function usesBlob() {
-  return !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+function kvBaseUrl(): string {
+  const accountId = process.env.CF_ACCOUNT_ID;
+  const namespaceId = process.env.CF_KV_NAMESPACE_ID;
+  return `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values`;
 }
 
-/* ── helpers ──────────────────────────────────────────────────── */
+function kvHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${process.env.CF_KV_API_TOKEN ?? ""}`,
+  };
+}
+
+function usesKV(): boolean {
+  return !!(
+    process.env.CF_ACCOUNT_ID &&
+    process.env.CF_KV_NAMESPACE_ID &&
+    process.env.CF_KV_API_TOKEN
+  );
+}
+
+/* ── KV helpers ───────────────────────────────────────────────── */
 
 async function readArchive(): Promise<object[]> {
   try {
-    const { blobs } = await list({ prefix: BLOB_PATHNAME });
-    if (blobs.length === 0) return [];
+    const res = await fetch(`${kvBaseUrl()}/${KV_KEY}`, {
+      headers: kvHeaders(),
+      cache: "no-store",
+    });
 
-    const { url } = blobs[0];
-
-    // Build the auth header — prefer the static R/W token, fall back to
-    // the OIDC token that Vercel injects at runtime on deployed functions.
-    const bearerToken =
-      process.env.BLOB_READ_WRITE_TOKEN ??
-      process.env.VERCEL_OIDC_TOKEN ??
-      "";
-
-    const headers: Record<string, string> = bearerToken
-      ? { Authorization: `Bearer ${bearerToken}` }
-      : {};
-
-    const res = await fetch(url, { headers, cache: "no-store" });
-    if (!res.ok) return [];
+    // 404 means the key doesn't exist yet — return empty array
+    if (res.status === 404) return [];
+    if (!res.ok) {
+      console.error("KV read error:", res.status, await res.text());
+      return [];
+    }
 
     const parsed = await res.json();
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (err) {
+    console.error("KV read exception:", err);
     return [];
   }
 }
 
 async function writeArchive(data: object[]): Promise<void> {
-  // SDK handles BLOB_READ_WRITE_TOKEN and VERCEL_OIDC_TOKEN automatically
-  await put(BLOB_PATHNAME, JSON.stringify(data, null, 2), {
-    access: "private",
-    contentType: "application/json",
-    allowOverwrite: true,
+  const res = await fetch(`${kvBaseUrl()}/${KV_KEY}`, {
+    method: "PUT",
+    headers: {
+      ...kvHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
   });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`KV write failed (${res.status}): ${body}`);
+  }
 }
 
-/* ── local file fallback (no Blob env vars) ──────────────────── */
+/* ── Local file fallback (no KV env vars — used in local dev) ── */
 
 async function readLocal(): Promise<object[]> {
   const { readFileSync } = await import("fs");
@@ -92,7 +108,7 @@ async function writeLocal(data: object[]): Promise<void> {
 
 /* ── GET ─────────────────────────────────────────────────────── */
 export async function GET() {
-  const archive = usesBlob() ? await readArchive() : await readLocal();
+  const archive = usesKV() ? await readArchive() : await readLocal();
   return NextResponse.json(archive);
 }
 
@@ -113,7 +129,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const archive = usesBlob() ? await readArchive() : await readLocal();
+    const archive = usesKV() ? await readArchive() : await readLocal();
 
     if (archive.some((r) => (r as { id: string }).id === body.id)) {
       return NextResponse.json(
@@ -124,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     archive.unshift(body); // newest first
 
-    if (usesBlob()) {
+    if (usesKV()) {
       await writeArchive(archive);
     } else {
       await writeLocal(archive);
@@ -148,22 +164,15 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    const archive = usesBlob() ? await readArchive() : await readLocal();
+    const archive = usesKV() ? await readArchive() : await readLocal();
     const updated = archive.filter((r) => (r as { id: string }).id !== id);
 
     if (updated.length === archive.length) {
       return NextResponse.json({ error: "Entry not found" }, { status: 404 });
     }
 
-    if (usesBlob()) {
+    if (usesKV()) {
       await writeArchive(updated);
-      // Clean up any individually keyed legacy blobs
-      try {
-        const { blobs } = await list({ prefix: `archive/${id}` });
-        await Promise.all(blobs.map((b) => del(b.url)));
-      } catch {
-        // non-critical
-      }
     } else {
       await writeLocal(updated);
     }
@@ -171,6 +180,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("DELETE /api/archive error:", err);
-    return NextResponse.json({ error: "Failed to delete entry" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to delete entry" },
+      { status: 500 }
+    );
   }
 }
